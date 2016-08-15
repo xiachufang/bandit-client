@@ -117,8 +117,9 @@ class BanditClientInstance(object):
         if len(q.queue) == self.max_queue_length or (datetime.datetime.now() - q.last_send_time).seconds > self.max_seconds:
             self.send(q)
 
-    def adjust(self, list_id, limit=20, offset=15, **kwargs):
+    def adjust(self, list_id, scores, limit=20, offset=15, **kwargs):
         data = {'list_id': list_id,
+                'scores': simplejson.dumps(scores),
                 'offset': offset,
                 'limit': limit,
                 'public_key': self.host_info.public_key}
