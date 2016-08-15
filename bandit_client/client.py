@@ -13,13 +13,10 @@ class BanditApiError(Exception):
 
 class BanditClient(object):
 
-    def __init__(self, host, public_key, secret_key, timeout=5, max_queue_length=100, max_seconds=86400):
+    def __init__(self, host, public_key, secret_key):
         self.host = host
         self.public_key = public_key
         self.secret_key = secret_key
-        self.timeout = timeout
-        self.max_queue_length = max_queue_length
-        self.max_seconds = max_seconds
 
     def create_instance(self):
         return BanditClientInstance(self)
@@ -38,13 +35,14 @@ class BanditSendQueue(object):
 
 class BanditClientInstance(object):
 
-    def __init__(self, bc):
+    def __init__(self, bc, timeout=5, max_queue_length=100, max_seconds=86400):
         self.host_info = bc
+        self.timeout = timeout
+        self.max_queue_length = max_queue_length
+        self.max_seconds = max_seconds
         self.click_queue = BanditSendQueue("%s/api/click.json" % self.host_info.host)
         self.show_queue = BanditSendQueue("%s/api/show.json" % self.host_info.host)
         self.adjust_url = "%s/api/adjust.json" % self.host_info.host
-        self.max_queue_length = bc.max_queue_length
-        self.max_seconds = bc.max_seconds
         self._session = None
 
     def __del__(self):
@@ -73,10 +71,10 @@ class BanditClientInstance(object):
         return self._session
 
     def post(self, *args, **kwargs):
-        return self.session.post(*args, timeout=self.host_info.timeout, **kwargs)
+        return self.session.post(*args, timeout=self.timeout, **kwargs)
 
     def get(self, *args, **kwargs):
-        return self.session.get(*args, timeout=self.host_info.timeout, **kwargs)
+        return self.session.get(*args, timeout=self.timeout, **kwargs)
 
     def verify(self, d):
         sign = d.pop('signature')
