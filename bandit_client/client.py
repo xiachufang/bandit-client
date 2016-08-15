@@ -18,8 +18,8 @@ class BanditClient(object):
         self.public_key = public_key
         self.secret_key = secret_key
 
-    def create_instance(self):
-        return BanditClientInstance(self)
+    def create_instance(self, timeout=5, max_queue_length=100, max_seconds=86400):
+        return BanditClientInstance(self, timeout=timeout, max_queue_length=max_queue_length, max_seconds=max_seconds)
 
 
 class BanditSendQueue(object):
