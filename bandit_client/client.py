@@ -5,21 +5,7 @@ import simplejson
 import hashlib
 
 
-def compute_sign(d, secret_key):
-    md5_str = ''
-    for key, value in sorted(d.items(), key=lambda x: x[0]):
-        if isinstance(value, unicode):
-            value = value.encode('utf8')
-        else:
-            value = str(value)
-        if isinstance(value, str):
-            md5_str += "%s%s" % (key, value)
-    md5_str += str(secret_key)
-    sign = hashlib.md5(md5_str).hexdigest()
-    return sign
-
-
-class PostError(Exception):
+class BanditApiError(Exception):
 
     def __init__(self, arg):
         self.args = [arg]
@@ -27,10 +13,11 @@ class PostError(Exception):
 
 class BanditClient(object):
 
-    def __init__(self, host, public_key, secret_key, max_queue_length=100, max_seconds=86400):
+    def __init__(self, host, public_key, secret_key, timeout=5, max_queue_length=100, max_seconds=86400):
+        self.host = host
         self.public_key = public_key
         self.secret_key = secret_key
-        self.host = host
+        self.timeout = timeout
         self.max_queue_length = max_queue_length
         self.max_seconds = max_seconds
 
@@ -58,52 +45,90 @@ class BanditClientInstance(object):
         self.adjust_url = "%s/api/adjust.json" % self.host_info.host
         self.max_queue_length = bc.max_queue_length
         self.max_seconds = bc.max_seconds
+        self._session = None
 
     def __del__(self):
         if self.click_queue.queue:
-            self.push(self.click_queue)
+            self.send(self.click_queue)
         if self.show_queue.queue:
-            self.push(self.show_queue)
+            self.send(self.show_queue)
+
+    def sign(self, d, salt=None):
+        md5_str = ''
+        for key, value in sorted(d.items(), key=lambda x: x[0]):
+            if isinstance(value, unicode):
+                value = value.encode('utf8')
+            else:
+                value = str(value)
+            if isinstance(value, str):
+                md5_str += "%s%s" % (key, value)
+        md5_str += str(self.host_info.secret_key)
+        sign = hashlib.md5(md5_str).hexdigest()
+        return sign
+
+    @property
+    def session(self):
+        if not self._session:
+            self._session = requests.session()
+        return self._session
+
+    def post(self, *args, **kwargs):
+        return self.session.post(*args, timeout=self.host_info.timeout, **kwargs)
+
+    def get(self, *args, **kwargs):
+        return self.session.get(*args, timeout=self.host_info.timeout, **kwargs)
+
+    def verify(self, d):
+        sign = d.pop('signature')
+        if sign == self.sign(d):
+            return True
+        return False
 
     def _signature(self, data):
-        return dict(zip(data.keys() + ['signature'],
-                        data.values() + [compute_sign(data, self.host_info.secret_key)]))
+        return dict(zip(data.keys() + ['signature'], data.values() + [self.sign(data)]))
 
-    def click(self, query, query_time, target, sk):
-        if type(query_time) != str:
-            query_time = query_time.strftime("%Y-%m-%d %H:%M:%S")
-        self.add_queue(self.click_queue, {'query': query,
-                                     'query_time': query_time,
-                                     'target': target,
-                                     'session_key': sk})
+    def _strftime(self, date_time):
+        if type(datetime) == str:
+            return date_time
+        return date_time.strftime("%Y-%m-%d %H:%M:%S")
 
-    def show(self, query, query_time, target, sk):
-        if type(query_time) != str:
-            query_time = query_time.strftime("%Y-%m-%d %H:%M:%S")
-        self.add_queue(self.show_queue, {'query': query,
-                                    'query_time': query_time,
-                                    'target': target,
-                                    'session_key': sk})
+    def click(self, list_id, click_time, target, sk):
+        self.add_queue(self.click_queue, {'list_id': list_id,
+                                          'query_time': self._strftime(click_time),
+                                          'target': target,
+                                          'session_key': sk})
 
-    def push(self, q):
+    def show(self, list_id, click_time, shows, sk):
+        self.add_queue(self.show_queue, {'list_id': list_id,
+                                         'query_time': self._strftime(click_time),
+                                         'shows': shows,
+                                         'session_key': sk})
+
+    def send(self, q):
         data = {'content': simplejson.dumps(q.queue),
                 'total': len(q.queue),
                 'public_key': self.host_info.public_key}
-        ret = requests.post(q.url, self._signature(data)).json()
-        if ret['status'] != 'ok':
-            raise PostError(ret)
-        q.clear()
+
+        resp = self.post(q.url, parms=self._signature(data))
+        if resp.status_code == requests.codes.ok:
+            return resp.json()['content']
+        raise BanditApiError(resp.text)
 
     def add_queue(self, q, data):
         q.queue.append(data)
         if len(q.queue) == self.max_queue_length or (datetime.datetime.now() - q.last_send_time).seconds > self.max_seconds:
-            self.push(q)
+            self.send(q)
 
-    def adjust(self, hits, query):
-        data = {'hits': simplejson.dumps(hits),
-                'query': query,
+    def adjust(self, list_id, limit=20, offset=15, **kwargs):
+        data = {'list_id': list_id,
+                'offset': offset,
+                'limit': limit,
                 'public_key': self.host_info.public_key}
-        ret = requests.post(self.adjust_url, self._signature(data)).json()
-        if ret['status'] != 'ok':
-            raise PostError(ret)
-        return ret['content']['hits']
+
+        for k, v in kwargs.iteritems():
+            data[k] = v
+
+        resp = self.get(self.adjust_url, params=self._signature(data))
+        if resp.status_code == requests.codes.ok:
+            return resp.json()['content']
+        raise BanditApiError(resp.text)
