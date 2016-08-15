@@ -127,7 +127,7 @@ class BanditClientInstance(object):
         for k, v in kwargs.iteritems():
             data[k] = v
 
-        resp = self.get(self.adjust_url, params=self._signature(data))
+        resp = self.post(self.adjust_url, params=self._signature(data))
         if resp.status_code == requests.codes.ok:
             return resp.json()['content']
         raise BanditApiError(resp.text)
