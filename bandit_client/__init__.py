@@ -1,4 +1,4 @@
 # coding: utf-8
-from .client import BanditClient, PostError # no qa
+from .client import BanditClient, BanditApiError # no qa
 
-__all__ = ['BanditClient', 'PostError']
+__all__ = ['BanditClient', 'BanditApiError']
