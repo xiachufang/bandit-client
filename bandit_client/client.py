@@ -13,36 +13,16 @@ class BanditApiError(Exception):
 
 class BanditClient(object):
 
-    def __init__(self, host, public_key, secret_key):
+    def __init__(self, host, public_key, secret_key, timeout, max_queue_length=100, max_seconds=86400):
         self.host = host
         self.public_key = public_key
         self.secret_key = secret_key
-
-    def create_instance(self, timeout=5, max_queue_length=100, max_seconds=86400):
-        return BanditClientInstance(self, timeout=timeout, max_queue_length=max_queue_length, max_seconds=max_seconds)
-
-
-class BanditSendQueue(object):
-
-    def __init__(self, url):
-        self.url = url
-        self.clear()
-
-    def clear(self):
-        self.queue = []
-        self.last_send_time = datetime.datetime.now()
-
-
-class BanditClientInstance(object):
-
-    def __init__(self, bc, timeout=5, max_queue_length=100, max_seconds=86400):
-        self.host_info = bc
         self.timeout = timeout
         self.max_queue_length = max_queue_length
         self.max_seconds = max_seconds
-        self.click_queue = BanditSendQueue("%s/api/click.json" % self.host_info.host)
-        self.show_queue = BanditSendQueue("%s/api/show.json" % self.host_info.host)
-        self.adjust_url = "%s/api/adjust.json" % self.host_info.host
+        self.click_queue = BanditSendQueue("%s/api/click.json" % self.host)
+        self.show_queue = BanditSendQueue("%s/api/show.json" % self.host)
+        self.adjust_url = "%s/api/adjust.json" % self.host
         self._session = None
 
     def __del__(self):
@@ -60,7 +40,7 @@ class BanditClientInstance(object):
                 value = str(value)
             if isinstance(value, str):
                 md5_str += "%s%s" % (key, value)
-        md5_str += str(self.host_info.secret_key)
+        md5_str += str(self.secret_key)
         sign = hashlib.md5(md5_str).hexdigest()
         return sign
 
@@ -90,14 +70,14 @@ class BanditClientInstance(object):
             return date_time
         return date_time.strftime("%Y-%m-%d %H:%M:%S")
 
-    def click(self, list_id, click_time, target, sk):
-        self.add_queue(self.click_queue, {'list_id': list_id,
+    def click(self, query, click_time, target, sk):
+        self.add_queue(self.click_queue, {'query': query,
                                           'query_time': self._strftime(click_time),
                                           'target': target,
                                           'session_key': sk})
 
-    def show(self, list_id, click_time, shows, sk):
-        self.add_queue(self.show_queue, {'list_id': list_id,
+    def show(self, query, click_time, shows, sk):
+        self.add_queue(self.show_queue, {'query': query,
                                          'query_time': self._strftime(click_time),
                                          'shows': shows,
                                          'session_key': sk})
@@ -105,9 +85,9 @@ class BanditClientInstance(object):
     def send(self, q):
         data = {'content': simplejson.dumps(q.queue),
                 'total': len(q.queue),
-                'public_key': self.host_info.public_key}
+                'public_key': self.public_key}
 
-        resp = self.post(q.url, parms=self._signature(data))
+        resp = self.post(q.url, data=self._signature(data))
         if resp.status_code == requests.codes.ok:
             return resp.json()['content']
         raise BanditApiError(resp.text)
@@ -117,17 +97,28 @@ class BanditClientInstance(object):
         if len(q.queue) == self.max_queue_length or (datetime.datetime.now() - q.last_send_time).seconds > self.max_seconds:
             self.send(q)
 
-    def adjust(self, list_id, scores, limit=0, offset=0, **kwargs):
-        data = {'list_id': list_id,
-                'scores': simplejson.dumps(scores),
+    def adjust(self, query, hits, limit=0, offset=0, **kwargs):
+        data = {'query': query,
+                'hits': simplejson.dumps(hits),
                 'offset': offset,
                 'limit': limit,
-                'public_key': self.host_info.public_key}
+                'public_key': self.public_key}
 
         for k, v in kwargs.iteritems():
             data[k] = v
 
-        resp = self.post(self.adjust_url, params=self._signature(data))
+        resp = self.post(self.adjust_url, data=self._signature(data))
         if resp.status_code == requests.codes.ok:
             return resp.json()['content']
         raise BanditApiError(resp.text)
+
+
+class BanditSendQueue(object):
+
+    def __init__(self, url):
+        self.url = url
+        self.clear()
+
+    def clear(self):
+        self.queue = []
+        self.last_send_time = datetime.datetime.now()
