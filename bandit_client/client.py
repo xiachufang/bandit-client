@@ -11,27 +11,37 @@ class BanditApiError(Exception):
         self.args = [arg]
 
 
+class BanditSendPool(object):
+
+    def __init__(self, url):
+        self.url = url
+        self.clear()
+
+    def clear(self):
+        self.pool = []
+        self.last_send_time = datetime.datetime.now()
+
+
 class BanditClient(object):
 
-    def __init__(self, host, public_key, secret_key, timeout, max_queue_length=100, max_seconds=86400):
+    def __init__(self, host, public_key, secret_key, timeout=5, max_pool_length=100):
         self.host = host
         self.public_key = public_key
         self.secret_key = secret_key
         self.timeout = timeout
-        self.max_queue_length = max_queue_length
-        self.max_seconds = max_seconds
-        self.click_queue = BanditSendQueue("%s/api/click.json" % self.host)
-        self.show_queue = BanditSendQueue("%s/api/show.json" % self.host)
-        self.adjust_url = "%s/api/adjust.json" % self.host
-        self._session = None
+        self.max_pool_length = max_pool_length
+        self.adjust_instance = BanditClientAdjustInstance(host, public_key, secret_key, timeout)
 
-    def __del__(self):
-        if self.click_queue.queue:
-            self.send(self.click_queue)
-        if self.show_queue.queue:
-            self.send(self.show_queue)
+    def adjust(self, hits, query, limit=0, offset=0, show_simul=False):
+        return self.adjust_instance.adjust(hits, query, limit, offset, show_simul)
 
-    def sign(self, d, salt=None):
+    def create_instance(self):
+        return BanditClientClickInstance(self.host, self.public_key, self.secret_key, self.timeout, self.max_pool_length)
+
+
+class BanditClientInstanceInterface(object):
+
+    def sign(self, d):
         md5_str = ''
         for key, value in sorted(d.items(), key=lambda x: x[0]):
             if isinstance(value, unicode):
@@ -44,17 +54,16 @@ class BanditClient(object):
         sign = hashlib.md5(md5_str).hexdigest()
         return sign
 
-    @property
     def session(self):
         if not self._session:
             self._session = requests.session()
         return self._session
 
     def post(self, *args, **kwargs):
-        return self.session.post(*args, timeout=self.timeout, **kwargs)
+        return self.session().post(*args, timeout=self.timeout, **kwargs)
 
     def get(self, *args, **kwargs):
-        return self.session.get(*args, timeout=self.timeout, **kwargs)
+        return self.session().get(*args, timeout=self.timeout, **kwargs)
 
     def verify(self, d):
         sign = d.pop('signature')
@@ -70,42 +79,24 @@ class BanditClient(object):
             return date_time
         return date_time.strftime("%Y-%m-%d %H:%M:%S")
 
-    def click(self, query, click_time, target, sk):
-        self.add_queue(self.click_queue, {'query': query,
-                                          'query_time': self._strftime(click_time),
-                                          'target': target,
-                                          'session_key': sk})
 
-    def show(self, query, click_time, shows, sk):
-        self.add_queue(self.show_queue, {'query': query,
-                                         'query_time': self._strftime(click_time),
-                                         'shows': shows,
-                                         'session_key': sk})
+class BanditClientAdjustInstance(BanditClientInstanceInterface):
 
-    def send(self, q):
-        data = {'content': simplejson.dumps(q.queue),
-                'total': len(q.queue),
-                'public_key': self.public_key}
+    def __init__(self, host, public_key, secret_key, timeout):
+        self.host = host
+        self.public_key = public_key
+        self.secret_key = secret_key
+        self.timeout = timeout
+        self.adjust_url = "%s/api/adjust.json" % self.host
+        self._session = None
 
-        resp = self.post(q.url, data=self._signature(data))
-        if resp.status_code == requests.codes.ok:
-            return resp.json()['content']
-        raise BanditApiError(resp.text)
-
-    def add_queue(self, q, data):
-        q.queue.append(data)
-        if len(q.queue) == self.max_queue_length or (datetime.datetime.now() - q.last_send_time).seconds > self.max_seconds:
-            self.send(q)
-
-    def adjust(self, query, hits, limit=0, offset=0, **kwargs):
+    def adjust(self, hits, query, limit=0, offset=0, show_simul=False):
         data = {'query': query,
                 'hits': simplejson.dumps(hits),
                 'offset': offset,
                 'limit': limit,
-                'public_key': self.public_key}
-
-        for k, v in kwargs.iteritems():
-            data[k] = v
+                'public_key': self.public_key,
+                'show_simul': show_simul}
 
         resp = self.post(self.adjust_url, data=self._signature(data))
         if resp.status_code == requests.codes.ok:
@@ -113,12 +104,50 @@ class BanditClient(object):
         raise BanditApiError(resp.text)
 
 
-class BanditSendQueue(object):
+class BanditClientClickInstance(BanditClientInstanceInterface):
 
-    def __init__(self, url):
-        self.url = url
-        self.clear()
+    def __init__(self, host, public_key, secret_key, timeout, max_pool_length):
+        self.host = host
+        self.public_key = public_key
+        self.secret_key = secret_key
+        self.timeout = timeout
+        self.max_pool_length = max_pool_length
+        self.click_pool = BanditSendPool("%s/api/click.json" % self.host)
+        self.show_pool = BanditSendPool("%s/api/show.json" % self.host)
+        self._session = None
 
-    def clear(self):
-        self.queue = []
-        self.last_send_time = datetime.datetime.now()
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        if self.click_pool.pool:
+            self.send(self.click_pool)
+        if self.show_pool.pool:
+            self.send(self.show_pool)
+
+    def click(self, query, query_time, target, sk):
+        self.add_pool(self.click_pool, {'query': query,
+                                        'query_time': self._strftime(query_time),
+                                        'target': target,
+                                        'session_key': sk})
+
+    def show(self, query, query_time, target, sk):
+        self.add_pool(self.show_pool, {'query': query,
+                                       'query_time': self._strftime(query_time),
+                                       'target': target,
+                                       'session_key': sk})
+
+    def send(self, q):
+        data = {'content': simplejson.dumps(q.pool),
+                'total': len(q.pool),
+                'public_key': self.public_key}
+
+        resp = self.post(q.url, data=self._signature(data))
+        if resp.status_code != requests.codes.ok:
+            raise BanditApiError(resp.text)
+        q.clear()
+
+    def add_pool(self, q, data):
+        q.pool.append(data)
+        if len(q.pool) == self.max_pool_length:
+            self.send(q)
