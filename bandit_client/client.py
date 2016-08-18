@@ -58,7 +58,7 @@ class BanditInterface(object):
         return dict(zip(data.keys() + ['signature'], data.values() + [self.sign(data)]))
 
     def _strftime(self, date_time):
-        if type(datetime) == str:
+        if type(date_time) == str:
             return date_time
         return date_time.strftime("%Y-%m-%d %H:%M:%S")
 

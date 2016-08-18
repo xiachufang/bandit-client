@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = 'bandit_client',
-    version = '0.0.2',
+    version = '0.0.3',
     keywords = ('bandit client'),
     description = 'bandit client',
     license = 'MIT License',
