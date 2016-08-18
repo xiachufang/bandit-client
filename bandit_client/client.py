@@ -22,24 +22,7 @@ class BanditSendPool(object):
         self.last_send_time = datetime.datetime.now()
 
 
-class BanditClient(object):
-
-    def __init__(self, host, public_key, secret_key, timeout=5, max_pool_length=100):
-        self.host = host
-        self.public_key = public_key
-        self.secret_key = secret_key
-        self.timeout = timeout
-        self.max_pool_length = max_pool_length
-        self.adjust_instance = BanditClientAdjustInstance(host, public_key, secret_key, timeout)
-
-    def adjust(self, hits, query, limit=0, offset=0, show_simul=False):
-        return self.adjust_instance.adjust(hits, query, limit, offset, show_simul)
-
-    def create_instance(self):
-        return BanditClientClickInstance(self.host, self.public_key, self.secret_key, self.timeout, self.max_pool_length)
-
-
-class BanditClientInstanceInterface(object):
+class BanditInterface(object):
 
     def sign(self, d):
         md5_str = ''
@@ -80,9 +63,9 @@ class BanditClientInstanceInterface(object):
         return date_time.strftime("%Y-%m-%d %H:%M:%S")
 
 
-class BanditClientAdjustInstance(BanditClientInstanceInterface):
+class BanditAdjust(BanditInterface):
 
-    def __init__(self, host, public_key, secret_key, timeout):
+    def __init__(self, host, public_key, secret_key, timeout=5):
         self.host = host
         self.public_key = public_key
         self.secret_key = secret_key
@@ -104,9 +87,9 @@ class BanditClientAdjustInstance(BanditClientInstanceInterface):
         raise BanditApiError(resp.text)
 
 
-class BanditClientClickInstance(BanditClientInstanceInterface):
+class BanditClick(BanditInterface):
 
-    def __init__(self, host, public_key, secret_key, timeout, max_pool_length):
+    def __init__(self, host, public_key, secret_key, timeout=5, max_pool_length=100):
         self.host = host
         self.public_key = public_key
         self.secret_key = secret_key
