@@ -100,9 +100,9 @@ class BanditClick(BanditInterface):
         self._session = None
 
     def __del__(self):
-        self.close()
+        self.flush()
 
-    def close(self):
+    def flush(self):
         if self.click_pool.pool:
             self.send(self.click_pool)
         if self.show_pool.pool:
