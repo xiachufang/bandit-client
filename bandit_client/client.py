@@ -73,13 +73,14 @@ class BanditAdjust(BanditInterface):
         self.adjust_url = "%s/api/adjust.json" % self.host
         self._session = None
 
-    def adjust(self, hits, query, limit=0, offset=0, show_simul=False):
+    def adjust(self, hits, query, limit=0, offset=0, show_simul=False, ver=''):
         data = {'query': query,
                 'hits': simplejson.dumps(hits),
                 'offset': offset,
                 'limit': limit,
                 'public_key': self.public_key,
-                'show_simul': show_simul}
+                'show_simul': show_simul,
+                'ver': ver}
 
         resp = self.post(self.adjust_url, data=self._signature(data))
         if resp.status_code == requests.codes.ok:
