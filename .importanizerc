@@ -13,7 +13,7 @@
         {
             "type": "packages",
             "packages": [
-                "bandit_server"
+                "bandit_client"
             ]
         },
         {
