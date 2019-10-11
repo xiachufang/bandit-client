@@ -1,8 +1,13 @@
 # coding: utf-8
-import requests
+from __future__ import absolute_import
 import datetime
-import simplejson
 import hashlib
+
+import six
+
+import requests
+import simplejson
+from bandit_client._compat import to_unicode, utf8
 
 
 class BanditApiError(Exception):
@@ -27,14 +32,10 @@ class BanditInterface(object):
     def sign(self, d):
         md5_str = ''
         for key, value in sorted(d.items(), key=lambda x: x[0]):
-            if isinstance(value, unicode):
-                value = value.encode('utf8')
-            else:
-                value = str(value)
-            if isinstance(value, str):
-                md5_str += "%s%s" % (key, value)
+            if isinstance(value, six.string_types):
+                md5_str += "%s%s" % (key, to_unicode(value))
         md5_str += str(self.secret_key)
-        sign = hashlib.md5(md5_str).hexdigest()
+        sign = hashlib.md5(utf8(md5_str)).hexdigest()
         return sign
 
     def session(self):
@@ -55,10 +56,10 @@ class BanditInterface(object):
         return False
 
     def _signature(self, data):
-        return dict(zip(data.keys() + ['signature'], data.values() + [self.sign(data)]))
+        return dict(zip(list(data.keys()) + ['signature'], list(data.values()) + [self.sign(data)]))
 
     def _strftime(self, date_time):
-        if type(date_time) == str:
+        if isinstance(date_time, six.string_types):
             return date_time
         return date_time.strftime("%Y-%m-%d %H:%M:%S")
 
